@@ -114,6 +114,16 @@ impl CompositeCircuit {
         self.total_duration
     }
 
+    /// Get total number of qubits used
+    pub fn total_qubits(&self) -> usize {
+        self.resource_summary.total_qubits_used
+    }
+
+    /// Get total number of classical bits used
+    pub fn total_cbits(&self) -> usize {
+        self.resource_summary.total_classical_used
+    }
+
     /// Convert to OpenQASM 3 output
     pub fn to_qasm(&self) -> Result<String> {
         let output_generator = OutputGenerator::new();
@@ -367,14 +377,24 @@ impl CircuitComposer {
         use crate::circuit_ir::Operation;
         
         for i in 1..composite.circuits.len() {
-            let current_circuit = &mut composite.circuits[i];
-            let prev_circuit = &composite.circuits[i - 1];
+            // Check if circuits share qubits using immutable borrows
+            let (share_qubits, shared_qubit_indices) = {
+                let current_circuit = &composite.circuits[i];
+                let prev_circuit = &composite.circuits[i - 1];
+                let share = self.circuits_share_qubits(current_circuit, prev_circuit);
+                let indices = if share {
+                    self.get_shared_qubits(current_circuit, prev_circuit)
+                } else {
+                    Vec::new()
+                };
+                (share, indices)
+            };
             
             // Check if circuits share qubits and need reset
-            if self.circuits_share_qubits(current_circuit, prev_circuit) {
+            if share_qubits {
+                let current_circuit = &mut composite.circuits[i];
                 // Add reset operations at the beginning of current circuit
-                let shared_qubits = self.get_shared_qubits(current_circuit, prev_circuit);
-                for qubit_idx in shared_qubits {
+                for qubit_idx in shared_qubit_indices {
                     let reset_op = Operation::Reset {
                         qubit: Qubit(qubit_idx),
                     };
